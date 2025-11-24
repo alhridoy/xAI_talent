@@ -5,24 +5,16 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Researcher, SearchResponse } from '@/types/researcher';
 import ResearcherList from '@/components/ResearcherList';
-import { Search, Map as MapIcon } from 'lucide-react';
+import { Search, Map as MapIcon, Network } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const normalizeText = (input: string): string => {
-  let query = input.replaceAll('-', ' ');
-  query = query.replaceAll(/[–—…«»‘’]/g, ' ');
-  query = query.replaceAll(/[“”]/g, '"');
-
-  const suffixMatch = /\w+$/.exec(query);
-  if (suffixMatch && suffixMatch[0].length >= 2) {
-    const partial = suffixMatch[0];
-    query = `${query.substring(0, suffixMatch.index)}(${partial}|${partial}*)`;
-  } else if (query.length >= 1 && /\w$/.test(query)) {
-    query = query.slice(0, -1);
-  }
-
-  return query.trim();
+  return input
+    .replaceAll('-', ' ')
+    .replaceAll(/[–—…«»‘’]/g, ' ')
+    .replaceAll(/[“”]/g, '"')
+    .trim();
 };
 
 export default function Home() {
@@ -31,7 +23,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [companyFilter, setCompanyFilter] = useState('');
-  const [showAllCompanies, setShowAllCompanies] = useState(false);
+  const [onlyWithPublications, setOnlyWithPublications] = useState(false);
   const [searchTime, setSearchTime] = useState<number>(0);
 
   const fetchResearchers = async () => {
@@ -120,6 +112,10 @@ export default function Home() {
     }
   };
 
+  const visibleResearchers = onlyWithPublications
+    ? researchers.filter((r) => (r.total_publications || 0) > 0)
+    : researchers;
+
   return (
     <div className="min-h-screen bg-white text-gray-900 font-sans selection:bg-blue-100">
       <div className="max-w-3xl mx-auto px-6 py-16">
@@ -157,32 +153,41 @@ export default function Home() {
               <label className="flex items-center gap-2 cursor-pointer group select-none">
                 <input
                   type="checkbox"
-                  checked={showAllCompanies}
-                  onChange={(e) => setShowAllCompanies(e.target.checked)}
+                  checked={onlyWithPublications}
+                  onChange={(e) => setOnlyWithPublications(e.target.checked)}
                   className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 transition-colors"
                 />
                 <span className="text-gray-600 group-hover:text-gray-900 transition-colors">Only show researchers with publications</span>
               </label>
             </div>
 
-            {/* Map Link */}
-            <Link 
-              href="/map"
-              className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors"
-            >
-              <MapIcon className="w-4 h-4" />
-              View Map
-            </Link>
+            {/* Visualization Links */}
+            <div className="flex items-center gap-2">
+              <Link 
+                href="/map"
+                className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors"
+              >
+                <MapIcon className="w-4 h-4" />
+                View Map
+              </Link>
+              <Link
+                href="/graph"
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-sm font-medium hover:bg-emerald-100 transition-colors"
+              >
+                <Network className="w-4 h-4" />
+                Knowledge Graph
+              </Link>
+            </div>
           </div>
         </div>
 
         {/* Content */}
         <>
           {/* Results Count */}
-          {!loading && researchers.length > 0 && (
+          {!loading && visibleResearchers.length > 0 && (
             <div className="bg-green-50/50 border border-green-100 rounded-lg px-4 py-3 mb-8">
               <span className="text-green-700 text-sm font-medium">
-                Found {totalResults > 0 ? totalResults : researchers.length} results ({searchTime.toFixed(2)} ms)
+                Found {totalResults > 0 ? totalResults : visibleResearchers.length} results ({searchTime.toFixed(2)} ms)
               </span>
             </div>
           )}
@@ -192,8 +197,8 @@ export default function Home() {
             <div className="text-center py-20">
               <div className="inline-block animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-blue-600"></div>
             </div>
-          ) : researchers.length > 0 ? (
-            <ResearcherList researchers={researchers} />
+          ) : visibleResearchers.length > 0 ? (
+            <ResearcherList researchers={visibleResearchers} />
           ) : (
             <div className="text-center py-20">
               <p className="text-gray-400">No results found.</p>

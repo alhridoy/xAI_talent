@@ -5,22 +5,25 @@ from sklearn.decomposition import TruncatedSVD
 from sklearn.cluster import KMeans
 import umap.umap_ as umap
 
-def generate_map_data(df: pd.DataFrame, n_clusters=15):
+def generate_map_data(df: pd.DataFrame, n_clusters=12):
     """
-    Generates 2D coordinates and clusters for the researchers using TF-IDF + UMAP.
+    Generates 3D coordinates and clusters for the researchers using TF-IDF + UMAP.
+    Clustering based on Rich Text Profile (About + Title + Role) to capture research identity.
     """
     # 1. Prepare Text Data
-    # Combine relevant fields to create a rich semantic representation
-    # User requested to cluster by organization and about section, avoiding position/title.
-    text_data = (
-        df["company"].fillna("") + " " +
-        df["about"].fillna("") + " " +
-        df["source_query"].fillna("")  # source_query often contains the search term/topic
-    ).tolist()
+    # Strategy: Use ONLY company/organization as requested
+    # This groups researchers by where they work (Google DeepMind, Meta, etc.)
+    
+    text_data = df["company"].fillna("").tolist()
 
     # 2. Vectorize (TF-IDF)
-    # Use unigrams and bigrams, limit features
-    tfidf = TfidfVectorizer(stop_words='english', max_features=5000, ngram_range=(1, 2))
+    # Use unigrams and bigrams to capture terms like "Large Language Model"
+    tfidf = TfidfVectorizer(
+        stop_words='english', 
+        max_features=5000, 
+        ngram_range=(1, 2),
+        min_df=2 # Ignore terms that appear in only 1 document
+    )
     tfidf_matrix = tfidf.fit_transform(text_data)
 
     # 3. Initial Dimension Reduction (LSA/SVD)
@@ -43,22 +46,31 @@ def generate_map_data(df: pd.DataFrame, n_clusters=15):
     embedding_3d = reducer.fit_transform(reduced_matrix)
 
     # 5. Clustering (K-Means)
+    # Increase clusters slightly to separate distinct companies better
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
     clusters = kmeans.fit_predict(reduced_matrix)
 
-    # 6. Generate Cluster Labels (Top terms per cluster)
-    # We find the nearest term in TF-IDF space or just aggregation
+    # 6. Generate Cluster Labels (Most Frequent Company Name)
+    # Instead of TF-IDF keywords (which gives "university university"), we use the
+    # most common actual company name in the cluster.
     cluster_labels = {}
-    feature_names = np.array(tfidf.get_feature_names_out())
+    df["cluster_temp"] = clusters
     
     for i in range(n_clusters):
-        # Get average vector for this cluster
-        center = tfidf_matrix[clusters == i].mean(axis=0)
-        # Get top indices
-        top_indices = np.argsort(np.asarray(center).flatten())[::-1][:3]
-        top_terms = feature_names[top_indices]
-        # Join terms to make a label like "vision computer deep"
-        cluster_labels[i] = " ".join(top_terms)
+        # Get companies in this cluster
+        companies_in_cluster = df[df["cluster_temp"] == i]["company"]
+        if not companies_in_cluster.empty:
+            # Get the most frequent company name
+            # mode() returns a Series, take the first item
+            top_company = companies_in_cluster.mode().iloc[0]
+            if not top_company:
+                 top_company = "Unknown"
+            cluster_labels[i] = top_company
+        else:
+            cluster_labels[i] = f"Cluster {i}"
+            
+    # Remove temp column
+    df.drop(columns=["cluster_temp"], inplace=True)
 
     # 7. Combine results
     results = []
