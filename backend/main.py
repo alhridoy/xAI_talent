@@ -15,9 +15,11 @@ from semantic_search import EmbeddingIndex
 app = FastAPI(title="xAI Talent Search API")
 
 
+# CORS configuration - allow all origins in production, localhost in dev
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -338,6 +340,32 @@ def load_knowledge_graph() -> None:
         # Check if edge already exists to avoid dupes
         if not G.has_edge(de["source"], de["target"]):
              edges.append(de)
+             G.add_edge(de["source"], de["target"], relationship="CO_WORKER")
+
+    # --- Compute 3D Layout (ZERO BUBBLING) ---
+    # Calculate fixed positions using NetworkX.
+    # k=0.5 is optimal distance, iterations=50 for stability.
+    try:
+        pos = nx.spring_layout(G, dim=3, k=0.5, iterations=50, seed=42)
+        
+        # Scale positions to reasonable 3D world coordinates (e.g., -400 to 400)
+        SCALE = 400.0
+        for node in nodes:
+            nid = node["id"]
+            if nid in pos:
+                x, y, z = pos[nid]
+                # Assign as fixed positions 'fx', 'fy', 'fz' for force-graph to lock onto
+                # But wait, force-graph-3d uses fx/fy/fz only if we want to lock.
+                # If we want static, we send x/y/z.
+                node["fx"] = float(x * SCALE)
+                node["fy"] = float(y * SCALE)
+                node["fz"] = float(z * SCALE)
+                # Also set initial x/y/z to prevent fly-in from 0,0,0
+                node["x"] = float(x * SCALE)
+                node["y"] = float(y * SCALE)
+                node["z"] = float(z * SCALE)
+    except Exception as e:
+        print(f"Layout computation failed: {e}")
 
     node_types = sorted({node.get("type", "unknown") for node in nodes})
     knowledge_graph_payload = {

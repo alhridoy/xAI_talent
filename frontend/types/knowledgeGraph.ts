@@ -15,6 +15,13 @@ export interface KnowledgeGraphNode {
     degree: number;
     community: number;
   };
+  // Pre-computed layout coordinates (from backend NetworkX)
+  fx?: number;
+  fy?: number;
+  fz?: number;
+  x?: number;
+  y?: number;
+  z?: number;
   [key: string]: unknown;
 }
 

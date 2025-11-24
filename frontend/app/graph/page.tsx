@@ -19,7 +19,6 @@ export default function KnowledgeGraphPage() {
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [chargeStrength, setChargeStrength] = useState(-200);
   const [linkDistance, setLinkDistance] = useState(160);
-  const [viewMode, setViewMode] = useState<'force' | 'grid' | 'cluster'>('cluster');
 
   useEffect(() => {
     const fetchGraph = async () => {
@@ -57,20 +56,14 @@ export default function KnowledgeGraphPage() {
   const filteredGraph = useMemo(() => {
     if (!graph) return { nodes: [], edges: [] };
     const allowedTypes = activeTypes.size ? activeTypes : new Set(availableTypes);
-    let nodes = graph.nodes.filter((node) => allowedTypes.has(node.type));
+    const nodes = graph.nodes.filter((node) => allowedTypes.has(node.type));
     
-    // In Analysis/Grid mode, filter to primary entities only to reduce noise
-    // In Cluster mode, keep everything but group them
-    if (viewMode === 'grid') {
-        nodes = nodes.filter(n => n.type === 'Person' || n.type === 'Company');
-    }
-
     const nodeIds = new Set(nodes.map((node) => node.id));
     const edges = graph.edges.filter(
       (edge) => nodeIds.has(String(edge.source)) && nodeIds.has(String(edge.target))
     );
     return { nodes, edges };
-  }, [graph, activeTypes, availableTypes, viewMode]);
+  }, [graph, activeTypes, availableTypes]);
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const searchMatches = useMemo(() => {
@@ -193,24 +186,7 @@ export default function KnowledgeGraphPage() {
             </div>
             
             <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 p-1">
-               <button 
-                 onClick={() => setViewMode('force')}
-                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${viewMode === 'force' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
-               >
-                 Force
-               </button>
-               <button 
-                 onClick={() => setViewMode('grid')}
-                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${viewMode === 'grid' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
-               >
-                 Grid
-               </button>
-               <button 
-                 onClick={() => setViewMode('cluster')}
-                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${viewMode === 'cluster' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
-               >
-                 Clusters
-               </button>
+               {/* Single nice graph, no toggles needed */}
             </div>
 
             <Link
@@ -432,7 +408,6 @@ export default function KnowledgeGraphPage() {
                 focusNodeId={selectedNodeId}
                 chargeStrength={chargeStrength}
                 linkDistance={linkDistance}
-                layoutMode={viewMode}
                 onNodeClick={(node) => setSelectedNodeId(node.id)}
                 onNodeHover={(node) => setHoveredNodeId(node?.id ?? null)}
               />

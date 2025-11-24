@@ -44,7 +44,6 @@ interface KnowledgeGraphCanvasProps {
   focusNodeId?: string | null;
   chargeStrength: number;
   linkDistance: number;
-  layoutMode?: 'force' | 'grid' | 'cluster';
   onNodeClick?: (node: KnowledgeGraphNode) => void;
   onNodeHover?: (node: KnowledgeGraphNode | null) => void;
 }
@@ -56,7 +55,6 @@ function KnowledgeGraphCanvas({
   focusNodeId,
   chargeStrength,
   linkDistance,
-  layoutMode = 'grid',
   onNodeClick,
   onNodeHover,
 }: KnowledgeGraphCanvasProps) {
@@ -69,82 +67,53 @@ function KnowledgeGraphCanvas({
     // Clone nodes to avoid mutating props directly if re-used
     let sortedNodes = [...nodes];
     
-    // If Grid Mode: Sort nodes to create orderly layout
-    if (layoutMode === 'grid') {
-        sortedNodes.sort((a, b) => {
-            const getPriority = (n: KnowledgeGraphNode) => {
-                if (n.type === 'Person') return 1;
-                if (n.type === 'Company') return 2;
-                if (n.type === 'Skill') return 3;
-                return 4;
-            };
-            const pA = getPriority(a);
-            const pB = getPriority(b);
-            if (pA !== pB) return pA - pB;
-            const cA = (a.metrics?.community ?? 0);
-            const cB = (b.metrics?.community ?? 0);
-            return cA - cB;
-        });
-    }
+    // Sort by centrality so important nodes render last/top if needed, or for consistency
+    sortedNodes.sort((a, b) => (b.metrics?.centrality || 0) - (a.metrics?.centrality || 0));
 
-    // Grid Layout Logic in 3D (Cubic arrangement)
-    const SPACING = 80;
-    const count = sortedNodes.length;
-    // Cube root to form a 3D grid cube
-    const side = Math.ceil(Math.cbrt(count));
-    
-    const typedNodes: ThreeNode[] = sortedNodes.map((node, idx) => {
-      // Color logic
-      let color = NODE_TYPE_COLORS[node.type] || '#94a3b8';
-      let val = 8; 
-
-      if (layoutMode === 'cluster') {
-          const commId = node.metrics?.community ?? 0;
-          color = COMMUNITY_COLORS[commId % COMMUNITY_COLORS.length];
-          val = node.type === 'Person' ? 12 : 6;
-      } else if (layoutMode === 'grid') {
-          if (node.type !== 'Person' && node.type !== 'Company') {
-              color = '#334155'; // Dim structural nodes
-              val = 4;
-          }
-      }
-
-      // 3D Grid Position Locking
+    const typedNodes: ThreeNode[] = sortedNodes.map((node) => {
+      // Use backend pre-computed positions if available (Static Layout)
+      // If x/y/z are provided by backend (scaled), we use them as initial positions.
+      // To make it TRULY static (no bubble), we assign them to fx, fy, fz (fixed).
       let fx, fy, fz;
-      if (layoutMode === 'grid') {
-          const x = idx % side;
-          const y = Math.floor((idx / side)) % side;
-          const z = Math.floor(idx / (side * side));
-          fx = (x - side / 2) * SPACING;
-          fy = (y - side / 2) * SPACING;
-          fz = (z - side / 2) * SPACING;
+      
+      // Check if backend sent layout coordinates
+      if (typeof node.x === 'number' && typeof node.y === 'number') {
+          fx = node.x;
+          fy = node.y;
+          fz = node.z || 0;
       }
+
+      // Color logic: Use Community Colors
+      const commId = node.metrics?.community ?? 0;
+      let color = COMMUNITY_COLORS[commId % COMMUNITY_COLORS.length];
+      
+      // Size logic: Centrality
+      // Base size 4, max 16 based on centrality
+      let val = 4 + ((node.metrics?.centrality || 0) * 100);
+      if (val > 16) val = 16;
+      
+      // Override for structural nodes if needed, but user wants "one nice graph"
+      // Let's stick to the community color scheme which looks professional.
 
       return {
         ...node,
         color,
         val,
-        fx, fy, fz, // Fixed positions for 3D force engine
+        fx, fy, fz, // Lock positions
         highlighted: highlightSet.has(node.id),
       };
     });
 
     const typedEdges: ThreeEdge[] = edges.map((edge) => {
       const id = `${edge.source}::${edge.relationship}::${edge.target}`;
-      let color = '#1e293b';
-      let width = 0.5;
-
-      // Cluster mode styling
-      if (layoutMode === 'cluster') {
-          color = '#334155'; // Faint
-          width = 0.2;
-      }
+      let color = '#334155'; // Default dark/slate
+      let width = 0.3; // Thin default
 
       const highlighted = highlightSet.has(String(edge.source)) || highlightSet.has(String(edge.target));
       
       if (highlighted) {
           color = '#60a5fa'; // Blue highlight
-          width = 1.5;
+          width = 1.5; // Thicker
       }
 
       return {
@@ -157,7 +126,7 @@ function KnowledgeGraphCanvas({
     });
 
     return { nodes: typedNodes, links: typedEdges };
-  }, [nodes, edges, highlightNodeIds, layoutMode]);
+  }, [nodes, edges, highlightNodeIds]);
 
   // --- Physics Engine Tuning ---
   useEffect(() => {
@@ -165,31 +134,17 @@ function KnowledgeGraphCanvas({
     
     const d3Force = graphRef.current.d3Force;
     
-    if (layoutMode === 'grid') {
-        // In Grid mode, we rely on fx/fy/fz. Disable forces.
-        d3Force('charge').strength(0);
-        d3Force('link').strength(0);
-        d3Force('center').strength(0);
-    } else if (layoutMode === 'cluster') {
-        // Strong clustering physics
-        // Use 'manyBody' (charge) to separate nodes
-        d3Force('charge').strength(-120).distanceMax(300);
-        
-        // Use links to hold clusters together
-        d3Force('link').strength(0.8).distance(40);
-        
-        // Center gravity
-        d3Force('center').strength(0.5);
-    } else {
-        // Standard Force Layout
-        d3Force('charge').strength(chargeStrength);
-        d3Force('link').strength(1).distance(linkDistance);
-        d3Force('center').strength(0.5);
-    }
+    // Disable all movement forces because we are using fixed positions (fx, fy, fz)
+    // This guarantees NO BUBBLING.
+    d3Force('charge').strength(0);
+    d3Force('link').strength(0);
+    d3Force('center').strength(0);
+    
+    // Stop simulation immediately to save CPU
+    graphRef.current.d3StopSimulation();
 
-    // Re-heat simulation to apply new forces
-    graphRef.current.d3ReheatSimulation();
-  }, [chargeStrength, linkDistance, layoutMode]);
+  }, [chargeStrength, linkDistance]); // Dependencies irrelevant now but kept for API compat
+
 
   // --- Focus Camera Logic ---
   useEffect(() => {
